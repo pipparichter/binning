@@ -123,8 +123,12 @@ class Graph():
 
 class Sequence():
 
-    def __init__(self, seq:str, read_size:int=300):
+    def __init__(self, seq:str, read_size:int=200):
         self.seq = seq 
+
+        # Store whether or not the sequence is long enough to generate a graph from. 
+        assert len(seq) > read_size, 'Sequence.__init__: The sequence must be at least as long as a read.' 
+
         self.read_size = read_size
         self.overlap = read_size // 2
 
@@ -154,15 +158,15 @@ class Sequence():
         # Get the cumulative length of all contigs. 
         # Because contigs are generated using unique labels, there shouldn't be any duplicates. 
         return sum([len(contig) for contig in contigs]) / self.__len__()
-
     
     def build_graph(self, read_depth:int=10000):
         '''I think the cleanest way to do this is with a graph.'''
+
         # Sample possible bin indices. Shift the indices to represent read labels (rather than list indices)
         labels_w = np.arange(self.n_bins_w) + 1
         labels_t = np.arange(self.n_bins_t) + 1.5
-
         labels = np.random.choice(np.concat([labels_w, labels_t]), replace=True, size=read_depth)
+
         labels = np.unique(labels).tolist()
         labels = sorted(labels)
 
@@ -202,9 +206,10 @@ class Genome():
         self.seqs = []
         # Parse the FASTA file, storing each record as a separate sequence. 
         for record in SeqIO.parse(path, 'fasta'):
-            self.seqs.append(Sequence(str(record.seq), read_size=read_size))
+            if len(record.seq) > read_size: # Make sure the sequence is at least as long as the read size. 
+                self.seqs.append(Sequence(str(record.seq), read_size=read_size))
         self.n_seqs = len(self.seqs)
-        print(f'Genome.__init__: Loaded {self.n_seqs} sequences from the FASTA file.')
+        # print(f'Genome.__init__: Loaded {self.n_seqs} sequences from the FASTA file.')
 
     def __len__(self):
         '''Returns the total number of bases in the genome.'''
@@ -256,7 +261,7 @@ def get_beta(b:int=None, l:int=None, r:int=None):
     beta = 1 - (1 - (1/alpha)) ** r
     return beta
 
-def pcgtk(k:int=None, b:int=None, l:int=None, r:int=None, verbose:bool=False):
+def pcgtk(k:int=None, b:int=None, l:int=None, r:int=None):
     '''Implements the probability distribution P(C >= k) determined using the occupancy model. 
     P(C >= k) Gives the probability that the length of the longest obtained contig is greater than k. 
 
@@ -271,12 +276,6 @@ def pcgtk(k:int=None, b:int=None, l:int=None, r:int=None, verbose:bool=False):
     # thetaW is similar, just subtract an extra one. I wrote down the derivation in my notebook, but should review. 
     thetaW = np.log(((b / l) - 1) * (1 - beta) + 1) / np.log(1 / beta)
     thetaT = np.log(((b / l) - 2) * (1 - beta) + 1) / np.log(1 / beta)
-
-    if verbose:
-        print('alpha =', alpha)
-        print('beta =', beta)
-        print('thetaW =', thetaW)
-        print('thetaT =', thetaT)
 
     p = 1 - np.exp((-beta ** k) * (beta**(-thetaW) + beta**(-thetaT)))
     return p.item()
