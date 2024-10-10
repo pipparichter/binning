@@ -24,7 +24,7 @@ def embed(seq:Seq, model, mean_pool:bool=False, direction:str='+') -> torch.Tens
         embedding = torch.ravel(torch.mean(embeddings, axis=0))
         assert len(embedding) == 1280, 'embed: The mean-pooled embeddings are the wrong shape.'
     
-    return embeddings
+    return embedding
 
 
 def get_memory_usage(input_path:str, emb_dim:int=1280, half_precision:bool=False, mean_pool:bool=False): # , dtype=torch.float32):
