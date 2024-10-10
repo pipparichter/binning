@@ -21,6 +21,8 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', '-o', type=str, default=None)
     parser.add_argument('--direction', default='+', choices=['+', '-'], type=str)
 
+    args = parser.parse_args()
+
     # model_name = 'tattabio/gLM2_650M'
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
     model = AutoModel.from_pretrained(args.model_name, trust_remote_code=True).cuda()
@@ -34,5 +36,5 @@ if __name__ == '__main__':
 
     with open(args.output_path, 'wb') as file:
         pickle.dump(embs, file)
-        
+
     print(f'Embeddings written to {args.output_path}')
