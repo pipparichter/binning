@@ -70,7 +70,7 @@ if __name__ == '__main__':
     # If we are mean-pooling, memory is less of a concern, and we can keep everything in memory at once. 
     if args.mean_pool: 
         embs = dict()
-        for record in tqdm(SeqIO.parse(args.input_path, 'fasta'), desc='Embedding sequences...'):
+        for record in tqdm(list(SeqIO.parse(args.input_path, 'fasta')), desc='Embedding sequences...'):
             embs[record.id] = embed(record.seq, model, mean_pool=args.mean_pool, direction=args.direction)
 
         output_path = os.path.join(output_dir, file_name + f'_{args.model_name.split('/')[-1]}.pkl')
@@ -83,7 +83,7 @@ if __name__ == '__main__':
         print(f'Creating zipped archive at {output_path}')
         with zipfile.ZipFile(output_path, 'w') as zf:
 
-            for record in tqdm(SeqIO.parse(args.input_path, 'fasta'), desc='Embedding sequences...'):
+            for record in tqdm(list(SeqIO.parse(args.input_path, 'fasta')), desc='Embedding sequences...'):
                 emb = embed(record.seq, model, mean_pool=args.mean_pool, direction=args.direction) # Output of this is a tensor. 
                 
                 tmp_file_path = os.path.join(output_dir, f'{record.id}.pt')
