@@ -12,6 +12,9 @@ import shutil
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+# Trying to fix some memory issues. See https://pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 def embed(seq:Seq, model, mean_pool:bool=False, direction:str='+') -> torch.Tensor:
     # Nucleotides NEED to be lower case. Also, <+> or <-> indicates strand.
     seq = f'<{args.direction}>{str(record.seq).lower()}'
