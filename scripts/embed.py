@@ -8,7 +8,7 @@ import argparse
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def embed(seq, model):
-    encodings = tokenizer([sequence], return_tensors='pt')
+    encodings = tokenizer([seq], return_tensors='pt')
     with torch.no_grad():
         embedding = model(encodings.input_ids.to(device), output_hidden_states=True).last_hidden_state
     return embedding.cpu().numpy()
