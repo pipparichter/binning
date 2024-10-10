@@ -27,7 +27,7 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
     model = AutoModel.from_pretrained(args.model_name, trust_remote_code=True).cuda()
 
-    for record in SeqIO.parse('contigs_coverage_95.fn', 'fasta'):
+    for record in SeqIO.parse(args.input_path, 'fasta'):
         seq_dict[record.id] = f'<{args.direction}>{str(record.seq).lower()}'
 
     embs = {}
