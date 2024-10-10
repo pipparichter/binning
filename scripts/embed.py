@@ -1,6 +1,7 @@
 import torch
 import pickle
 from Bio import SeqIO
+from Bio.Seq import Seq
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModel
 import argparse
@@ -11,7 +12,7 @@ import shutil
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-def embed(seq, model, mean_pool:bool=False, direction:str='+'):
+def embed(seq:Seq, model, mean_pool:bool=False, direction:str='+'):
     # Nucleotides NEED to be lower case. Also, <+> or <-> indicates strand.
     seq = f'<{args.direction}>{str(record.seq).lower()}'
     encodings = tokenizer([seq], return_tensors='pt')
@@ -70,7 +71,7 @@ if __name__ == '__main__':
     if args.mean_pool: 
         embs = dict()
         for record in tqdm(SeqIO.parse(args.input_path, 'fasta'), desc='Embedding sequences...'):
-            embs[record.id] = embed(seq, model, mean_pool=args.mean_pool, direction=args.direction)
+            embs[record.id] = embed(record.seq, model, mean_pool=args.mean_pool, direction=args.direction)
 
         output_path = os.path.join(output_dir, file_name + f'_{args.model_name.split('/')[-1]}.pkl')
         with open(output_path, 'wb') as f:
@@ -83,7 +84,7 @@ if __name__ == '__main__':
         with zipfile.ZipFile(output_path, 'w') as zf:
 
             for record in tqdm(SeqIO.parse(args.input_path, 'fasta'), desc='Embedding sequences...'):
-                emb = embed(seq, model, mean_pool=args.mean_pool, direction=args.direction) # Output of this is a numpy array. 
+                emb = embed(record.seq, model, mean_pool=args.mean_pool, direction=args.direction) # Output of this is a numpy array. 
                 
                 tmp_file_path = os.path.join(output_dir, f'{record.id}.txt')
                 np.savetxt(tmp_file_path, emb)
