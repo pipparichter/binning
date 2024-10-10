@@ -12,16 +12,16 @@ import shutil
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-def embed(seq:Seq, model, mean_pool:bool=False, direction:str='+'):
+def embed(seq:Seq, model, mean_pool:bool=False, direction:str='+') -> torch.Tensor:
     # Nucleotides NEED to be lower case. Also, <+> or <-> indicates strand.
     seq = f'<{args.direction}>{str(record.seq).lower()}'
     encodings = tokenizer([seq], return_tensors='pt')
     with torch.no_grad():
         embedding = model(encodings.input_ids.to(device), output_hidden_states=True).last_hidden_state
-    embedding = embedding.cpu().numpy()
+    embedding = embedding.cpu()# .numpy()
 
     if mean_pool:
-        embeddings = np.mean(embeddings, axis=0).ravel()
+        embeddings = torch.ravel(torch.mean(embeddings, axis=0))
         assert len(embeddings) == 1280, 'embed: The mean-pooled embeddings are the wrong shape.'
     
     return embeddings 
@@ -84,10 +84,11 @@ if __name__ == '__main__':
         with zipfile.ZipFile(output_path, 'w') as zf:
 
             for record in tqdm(SeqIO.parse(args.input_path, 'fasta'), desc='Embedding sequences...'):
-                emb = embed(record.seq, model, mean_pool=args.mean_pool, direction=args.direction) # Output of this is a numpy array. 
+                emb = embed(record.seq, model, mean_pool=args.mean_pool, direction=args.direction) # Output of this is a tensor. 
                 
-                tmp_file_path = os.path.join(output_dir, f'{record.id}.txt')
-                np.savetxt(tmp_file_path, emb)
+                tmp_file_path = os.path.join(output_dir, f'{record.id}.pt')
+                # np.savetxt(tmp_file_path, emb)
+                torch.save(emb, tmp_file_path)
 
                 zf.write(tmp_file_path) # Add the temporary file to the zip archive. 
                 os.remove(tmp_file_path) # Remove the temporary file. 
