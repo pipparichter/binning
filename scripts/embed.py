@@ -11,7 +11,9 @@ import shutil
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-def embed(seq, model, mean_pool:bool=False):
+def embed(seq, model, mean_pool:bool=False, direction:str='+'):
+    # Nucleotides NEED to be lower case. Also, <+> or <-> indicates strand.
+    seq = f'<{args.direction}>{str(record.seq).lower()}'
     encodings = tokenizer([seq], return_tensors='pt')
     with torch.no_grad():
         embedding = model(encodings.input_ids.to(device), output_hidden_states=True).last_hidden_state
@@ -54,8 +56,8 @@ if __name__ == '__main__':
     torch_dtype = torch.bfloat16 if args.half_precision else torch.float32
     file_name, _ = os.path.splitext(os.path.basename(args.input_path))
     dir_name = os.path.dirname(args.input_path)
+    # Use the same output directory as the specified input directory default.
     output_dir = args.output_dir if (args.output_dir is not None) else dir_name
-
 
     # model_name = 'tattabio/gLM2_650M'
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
@@ -68,8 +70,7 @@ if __name__ == '__main__':
     if args.mean_pool: 
         embs = dict()
         for record in tqdm(SeqIO.parse(args.input_path, 'fasta'), desc='Embedding sequences...'):
-            seq = f'<{args.direction}>{str(record.seq).lower()}'
-            embs[record.id] = embed(seq, model, mean_pool=args.mean_pool)
+            embs[record.id] = embed(seq, model, mean_pool=args.mean_pool, direction=args.direction)
 
         output_path = os.path.join(output_dir, file_name + f'_{args.model_name.split('/')[-1]}.pkl')
         with open(output_path, 'wb') as f:
@@ -82,8 +83,7 @@ if __name__ == '__main__':
         with zipfile.ZipFile(output_path, 'w') as zf:
 
             for record in tqdm(SeqIO.parse(args.input_path, 'fasta'), desc='Embedding sequences...'):
-                seq = f'<{args.direction}>{str(record.seq).lower()}'
-                emb = embed(seq, model, mean_pool=args.mean_pool) # Output of this is a numpy array. 
+                emb = embed(seq, model, mean_pool=args.mean_pool, direction=args.direction) # Output of this is a numpy array. 
                 
                 tmp_file_path = os.path.join(output_dir, f'{record.id}.txt')
                 np.savetxt(tmp_file_path, emb)
