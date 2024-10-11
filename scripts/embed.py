@@ -17,17 +17,23 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 def embed(seq:Seq, model, mean_pool:bool=False, direction:str='+') -> torch.Tensor:
     # Nucleotides NEED to be lower case. Also, <+> or <-> indicates strand.
-    seq = f'<{args.direction}>{str(record.seq).lower()}'
-    encodings = tokenizer([seq], return_tensors='pt')
-    with torch.no_grad():
-        embedding = model(encodings.input_ids.to(device), output_hidden_states=True).last_hidden_state
-    embedding = embedding.cpu()# .numpy()
 
-    if mean_pool:
-        embedding = torch.ravel(torch.mean(embeddings, axis=0))
-        assert len(embedding) == 1280, 'embed: The mean-pooled embeddings are the wrong shape.'
+    try:
+        seq = f'<{args.direction}>{str(record.seq).lower()}'
+        encodings = tokenizer([seq], return_tensors='pt')
+        with torch.no_grad():
+            embedding = model(encodings.input_ids.to(device), output_hidden_states=True).last_hidden_state
+        embedding = embedding.cpu()# .numpy()
+
+        if mean_pool:
+            embedding = torch.ravel(torch.mean(embeddings, axis=0))
+            assert len(embedding) == 1280, 'embed: The mean-pooled embeddings are the wrong shape.'
+        
+        return embedding
     
-    return embedding
+    except torch.OutOfMemoryError:
+        return None
+
 
 
 def get_memory_usage(input_path:str, emb_dim:int=1280, half_precision:bool=False, mean_pool:bool=False): # , dtype=torch.float32):
@@ -84,10 +90,15 @@ if __name__ == '__main__':
     else:
         output_path = os.path.join(output_dir, file_name + f'_{args.model_name.split('/')[-1]}.zip')
         print(f'Creating zipped archive at {output_path}')
+
+        skipped_due_to_memory = 0
         with zipfile.ZipFile(output_path, 'w') as zf:
 
             for record in tqdm(list(SeqIO.parse(args.input_path, 'fasta')), desc='Embedding sequences...'):
                 emb = embed(record.seq, model, mean_pool=args.mean_pool, direction=args.direction) # Output of this is a tensor. 
+                if emb is None: # If there's an out-of-memory error, skip the sequence and continue. 
+                    skipped_due_to_memory += 1
+                    continue
                 
                 tmp_file_path = os.path.join(output_dir, f'{record.id}.pt')
                 # np.savetxt(tmp_file_path, emb)
@@ -95,5 +106,6 @@ if __name__ == '__main__':
 
                 zf.write(tmp_file_path) # Add the temporary file to the zip archive. 
                 os.remove(tmp_file_path) # Remove the temporary file. 
+        print(f'Skipped {skipped_due_to_memory} sequences due to an out-of-memory error.')
 
     print(f'Embeddings written to {output_path}')
