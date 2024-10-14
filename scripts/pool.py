@@ -27,7 +27,7 @@ if __name__ == '__main__':
             emb = f.read(name) # Read the contents of the file in the archive. 
             emb = torch.load(io.BytesIO(emb))
             emb = torch.ravel(torch.mean(emb, axis=0))
-            assert len(embedding) == 1280, 'embed: The mean-pooled embeddings are the wrong shape.'
+            assert len(emb) == 1280, 'embed: The mean-pooled embeddings are the wrong shape.'
             embeddings[id_] = emb 
 
     # Replace the file extension. 
