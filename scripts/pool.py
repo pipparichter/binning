@@ -24,8 +24,8 @@ if __name__ == '__main__':
         for name in tqdm(f.namelist(), desc='Mean-pooling embeddings...'):
             # The name of the file is the contig ID. 
             id_ = name.replace('.pt', '') # Remove the file extension. 
-            emb = f.read(name) # Read the contents of the file in the archive. 
-            emb = torch.load(io.StringIO(emb))
+            # emb = f.read(name) # Read the contents of the file in the archive. 
+            emb = torch.load(f.read(name))
             emb = torch.ravel(torch.mean(emb, axis=0))
             assert len(embedding) == 1280, 'embed: The mean-pooled embeddings are the wrong shape.'
             embeddings[id_] = emb 
