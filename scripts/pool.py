@@ -5,7 +5,7 @@ import io
 import torch 
 import tqdm 
 import pickle
-
+import os 
 
 
 if __name__ == '__main__':
@@ -14,6 +14,10 @@ if __name__ == '__main__':
     parser.add_argument('--output-dir', type=str, default=None)
 
     args = parser.parse_args()
+
+    dir_name = os.path.dirname(args.input_path)
+    # Use the same output directory as the specified input directory default.
+    output_dir = args.output_dir if (args.output_dir is not None) else dir_name
 
     embeddings = dict()
     with zipfile.ZipFile(args.input_path, 'r') as f:
@@ -28,6 +32,7 @@ if __name__ == '__main__':
 
     # Replace the file extension. 
     output_path = input_path.replace('.zip', '') + '.pkl'
+    output_path = os.path.join(output_dir, output_path)
     with open(output_path, 'wb') as f:
         pickle.dump(embeddings, f)
     print(f'Mean-pooled embeddings written to {output_path}')
