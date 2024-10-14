@@ -3,7 +3,7 @@ import argparse
 import zipfile 
 import io
 import torch 
-import tqdm 
+from tqdm import tqdm
 import pickle
 import os 
 
@@ -21,7 +21,7 @@ if __name__ == '__main__':
 
     embeddings = dict()
     with zipfile.ZipFile(args.input_path, 'r') as f:
-        for name in tqdm(f.namelist(), 'Mean-pooling embeddings...'):
+        for name in tqdm(f.namelist(), desc='Mean-pooling embeddings...'):
             # The name of the file is the contig ID. 
             id_ = name.replace('.pt', '') # Remove the file extension. 
             emb = f.read(name) # Read the contents of the file in the archive. 
