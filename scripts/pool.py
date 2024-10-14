@@ -25,13 +25,13 @@ if __name__ == '__main__':
             # The name of the file is the contig ID. 
             id_ = name.replace('.pt', '') # Remove the file extension. 
             emb = f.read(name) # Read the contents of the file in the archive. 
-            emb = torch.load(io.BytesIO(emb))
+            emb = torch.load(io.BytesIO(emb), weights_only=False)
             emb = torch.ravel(torch.mean(emb, axis=1))
             assert len(emb) == 1280, f'embed: The mean-pooled embeddings are the wrong shape. Shape is {emb.shape}.'
             embeddings[id_] = emb 
 
     # Replace the file extension. 
-    output_path = input_path.replace('.zip', '') + '.pkl'
+    output_path = args.input_path.replace('.zip', '') + '.pkl'
     output_path = os.path.join(output_dir, output_path)
     with open(output_path, 'wb') as f:
         pickle.dump(embeddings, f)
