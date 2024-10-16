@@ -30,7 +30,7 @@ if __name__ == '__main__':
             # NOTE: The embedding has a sneaky axis at the beginning, so need to extract the second element from the shape. 
             info['length'] = emb.shape[1] 
             info['embedding'] = torch.ravel(torch.mean(emb, axis=1))
-            assert len(emb) == 1280, f'embed: The mean-pooled embeddings are the wrong shape. Shape is {emb.shape}.'
+            assert len(info['embedding']) == 1280, f'embed: The mean-pooled embeddings are the wrong shape. Shape is {emb.shape}.'
             embeddings.append(info)
 
     # Replace the file extension. 
