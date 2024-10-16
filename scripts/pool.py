@@ -27,9 +27,10 @@ if __name__ == '__main__':
             info['id'] = os.path.basename(name.replace('.pt', '')) # Remove the file extension and the path stuff.  
             emb = f.read(name) # Read the contents of the file in the archive. 
             emb = torch.load(io.BytesIO(emb), weights_only=False)
-            info['length'] = len(emb) # Number of elements on the genome axis should correspond to the contig length. 
+            # NOTE: The embedding has a sneaky axis at the beginning, so need to extract the second element from the shape. 
+            info['length'] = emb.shape[1] 
             info['embedding'] = torch.ravel(torch.mean(emb, axis=1))
-            # assert len(emb) == 1280, f'embed: The mean-pooled embeddings are the wrong shape. Shape is {emb.shape}.'
+            assert len(emb) == 1280, f'embed: The mean-pooled embeddings are the wrong shape. Shape is {emb.shape}.'
             embeddings.append(info)
 
     # Replace the file extension. 
