@@ -1,111 +1,51 @@
+import sys 
+import os 
+cwd = os.getcwd()
+print('Current working directory is:', cwd)
+sys.path.append(os.path.join(cwd, 'src'))
+sys.path.append(os.path.join(cwd, '../src'))
+
+
 import torch
-import pickle
-from Bio import SeqIO
-from Bio.Seq import Seq
 from tqdm import tqdm
-from transformers import AutoTokenizer, AutoModel
 import argparse
 import numpy as np 
 import zipfile 
-import os 
+from files import FastaFile
+from emb import *
 import shutil 
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # Trying to fix some memory issues. See https://pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-def embed(seq:Seq, model, mean_pool:bool=False, direction:str='+') -> torch.Tensor:
-    # Nucleotides NEED to be lower case. Also, <+> or <-> indicates strand.
 
-    try:
-        seq = f'<{args.direction}>{str(record.seq).lower()}'
-        encodings = tokenizer([seq], return_tensors='pt')
-        with torch.no_grad():
-            embedding = model(encodings.input_ids.to(device), output_hidden_states=True).last_hidden_state
-        embedding = embedding.cpu()# .numpy()
-
-        if mean_pool:
-            embedding = torch.ravel(torch.mean(embeddings, axis=0))
-            assert len(embedding) == 1280, 'embed: The mean-pooled embeddings are the wrong shape.'
-        
-        return embedding
-    
-    except torch.OutOfMemoryError:
-        return None
-
-
-
-def get_memory_usage(input_path:str, emb_dim:int=1280, half_precision:bool=False, mean_pool:bool=False): # , dtype=torch.float32):
-    '''Estimate the amount of memory which will be taken up by the embeddings of the sequences in the file.
-    Returns the size in bytes.'''
-    
-    n = 0
-    for record in SeqIO.parse(args.input_path, 'fasta'):
-        n += len(str(record.seq)) if (not mean_pool) else 1
-    # print(f'get_memory_usage: Number of embedded items is {n}.')
-    itemsize = 2 if half_precision else 4 # Get the size of the placeholder in bytes. 
-    return itemsize * n * emb_dim
-    
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model-name', type=str, default='tattabio/gLM2_650M')
-    # https://github.com/TattaBio/gLM2
+    parser.add_argument('--type', type=str, choices=['kmer', 'glm'], help='The type of embedding to generate.', default='plm')
     parser.add_argument('--input-path', '-i', type=str, default=None)
-    parser.add_argument('--output-dir', '-d', type=str, default=None)
     parser.add_argument('--direction', default='+', choices=['+', '-'], type=str)
-    # parser.add_argument('--dtype', choices=['float16', 'float32'], type=str)
-    parser.add_argument('--half-precision', action='store_true')
-    parser.add_argument('--mean-pool', action='store_true')
-
     args = parser.parse_args()
 
-    # torch_dtype = torch.float16 if args.dtype == 'float16' else torch.float32
-    torch_dtype = torch.bfloat16 if args.half_precision else torch.float32
-    file_name, _ = os.path.splitext(os.path.basename(args.input_path))
+    file_name, _ = os.path.splitext(os.path.basename(args.input_path)) 
+    file_name += f'_{args.type}.zip' # Add the embedding type and zip extension. 
     dir_name = os.path.dirname(args.input_path)
-    # Use the same output directory as the specified input directory default.
-    output_dir = args.output_dir if (args.output_dir is not None) else dir_name
+    output_path = os.path.join(dir_name, file_name)
 
-    # model_name = 'tattabio/gLM2_650M'
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
-    model = AutoModel.from_pretrained(args.model_name, torch_dtype=torch_dtype, trust_remote_code=True).to(device)
+    embedder = GlmEmbedder(direction=args.direction) if (args.type == 'glm') else KmerEmbedder(direction=args.direction)
+    file = FastaFile(args.input_path)
+    embedder(file, path=output_path)
 
-    mem = get_memory_usage(args.input_path, half_precision=args.half_precision, mean_pool=args.mean_pool)
-    print('Predicted memory usage of embeddings:', np.round(mem / 1e9, 2), 'GB')
 
-    # If we are mean-pooling, memory is less of a concern, and we can keep everything in memory at once. 
-    if args.mean_pool: 
-        embs = dict()
-        for record in tqdm(list(SeqIO.parse(args.input_path, 'fasta')), desc='Embedding sequences...'):
-            embs[record.id] = embed(record.seq, model, mean_pool=args.mean_pool, direction=args.direction)
-
-        output_path = os.path.join(output_dir, file_name + f'_{args.model_name.split('/')[-1]}.pkl')
-        with open(output_path, 'wb') as f:
-            pickle.dump(embs, f)
+# def get_memory_usage(input_path:str, emb_dim:int=1280, half_precision:bool=False, mean_pool:bool=False): # , dtype=torch.float32):
+#     '''Estimate the amount of memory which will be taken up by the embeddings of the sequences in the file.
+#     Returns the size in bytes.'''
     
-    # If we are not mean-pooling, we will store eveything as a zip archive. 
-    else:
-        output_path = os.path.join(output_dir, file_name + f'_{args.model_name.split('/')[-1]}.zip')
-        print(f'Creating zipped archive at {output_path}')
-
-        skipped_due_to_memory = 0
-        with zipfile.ZipFile(output_path, 'w') as zf:
-
-            for record in tqdm(list(SeqIO.parse(args.input_path, 'fasta')), desc='Embedding sequences...'):
-                emb = embed(record.seq, model, mean_pool=args.mean_pool, direction=args.direction) # Output of this is a tensor. 
-                if emb is None: # If there's an out-of-memory error, skip the sequence and continue. 
-                    skipped_due_to_memory += 1
-                    continue
-                
-                tmp_file_path = os.path.join(output_dir, f'{record.id}.pt')
-                # np.savetxt(tmp_file_path, emb)
-                torch.save(emb, tmp_file_path)
-
-                zf.write(tmp_file_path) # Add the temporary file to the zip archive. 
-                os.remove(tmp_file_path) # Remove the temporary file. 
-        print(f'Skipped {skipped_due_to_memory} sequences due to an out-of-memory error.')
-
-    print(f'Embeddings written to {output_path}')
+#     n = 0
+#     for record in SeqIO.parse(args.input_path, 'fasta'):
+#         n += len(str(record.seq)) if (not mean_pool) else 1
+#     # print(f'get_memory_usage: Number of embedded items is {n}.')
+#     itemsize = 2 if half_precision else 4 # Get the size of the placeholder in bytes. 
+#     return itemsize * n * emb_dim
+    

@@ -29,16 +29,16 @@ def coverage_wendl_2013(alpha:float=None, R:int=None, L:int=None, gamma:int=None
     # print('phi =', phi)
 
     summation = Decimal(0)
-    pbar = tqdm(range(eta + 1), desc='coverage_wendl_2013')
-    for beta in pbar:
+    # pbar = tqdm(range(eta + 1), desc='coverage_wendl_2013')
+    for beta in range(eta + 1):
         s = Decimal(comb(R, beta, exact=True))
         s *= Decimal((-alpha) ** beta)
         s *= Decimal((1 - beta * phi) ** (beta - 1))
         s *= Decimal((1 - beta * alpha * phi) ** (R - beta))
         # print(Decimal(comb(R, beta, exact=True)), s)
         summation += s
-        pbar.set_description(f'coverage_wendl_2013: Current value of summation is {np.round(float(summation), 4)}.')
-        pbar.update(1)
+        # pbar.set_description(f'coverage_wendl_2013: Current value of summation is {np.round(float(summation), 4)}.')
+        # pbar.update(1)
 
     return summation
 

@@ -8,13 +8,14 @@ from sklearn.neighbors import kneighbors_graph
 import time
 import sklearn
 from tqdm import tqdm 
-from typing import NoReturn
+from typing import NoReturn, List
 from sklearn.metrics import pairwise_distances_chunked, pairwise_distances
 # from scipy.stats import f_oneway
 
 # Need to think about a good, consistent interface for these... 
 # Probably will stick to working with Numpy arrays instead of Tensors. 
 
+# https://www.kaggle.com/discussions/general/430972 
 
 class UnivariateFilter():
     def __init__(self, low_memory:bool=True):
@@ -37,16 +38,16 @@ class UnivariateFilter():
         
         n = len(X) # Get the number of samples. 
         memory = (np.dtype(np.float16).itemsize * n * n) * 1e-9 if self.low_memory else (np.dtype(X.dtype).itemsize * n * n) * 1e-9
-        print(f'UnivariateFilter.distance_matrix: Predicted to use {int(memory)} GB of memory.')
         if self.low_memory:
+            print(f'UnivariateFilter.distance_matrix: Predicted to use {int(memory)} GB of memory.')
             D = []
             #working_memory = sklearn.get_config()['working_memory'] / 1000 # This is in units MiB, so convert to GB. 
             working_memory = 100
-            n_chunks = (memory // (working_memory * 1e-3)) + 1 # Approximate the number of chunks required. 
+            # n_chunks = (memory // (working_memory * 1e-3)) + 1 # Approximate the number of chunks required. 
             chunks = pairwise_distances_chunked(X, metric=metric, reduce_func=lambda x, i : x.astype(np.float16))
-            for chunk in tqdm(chunks, total=int(n_chunks), desc=f'UnivariateFilter: Computing the distance matrix with metric {metric} in low-memory mode...'):
+            for chunk in tqdm(chunks, desc=f'UnivariateFilter: Computing the distance matrix with metric {metric} in low-memory mode...'):
                 D.append(chunk)
-            D = np.array(D)
+            D = np.concatenate(D)
         else:
             D = pairwise_distances(X, metric=metric)
         return D
@@ -61,53 +62,63 @@ class SUD(UnivariateFilter):
     # Cosine similarity measures the angle between two vectors, not the magnitude. Euclidean accounts for magnitude. 
     # Cosine similarity is the normalized dot product of two vectors. 
 
-    def __init__(self, metric='euclidean'):
+    def __init__(self, low_memory:bool=True):
 
-        super().__init__()
-        # self.D = None # For storing the distance matrix, which I think would be intensive to keep re-computing. 
+        super().__init__(low_memory=low_memory)
+        self.E = None # For storing the entropy matrix, which I think would be intensive to keep re-computing. 
         self.alpha = None
-        self.metric = metric 
-        self.dist_func = euclidean_distances if (metric == 'euclidean') else cosine_similarity
+        # self.metric = metric 
+        # self.dist_func = euclidean_distances if (metric == 'euclidean') else cosine_similarity
 
     
-    def similarity(self, i:int, j:int):
-        return np.exp(-self.D[i, j] * self.alpha)
-
+    # def similarity(self, i:int, j:int):
+    #     # Should always be positive. 
+    #     return np.exp(-self.D[i, j] * self.alpha)
+    
     def entropy(self, X:np.ndarray):
         '''Compute the entropy metric, as described in the paper.'''
-        E = 0
-        for i in range(len(X)):
-            for j in range(len(X)):
-                S = self.similarity(i, j)
-                E += (S * np.log(S) + (1 - S) * np.log(1 - S))
-        return E
+        # Need to recompute the distance matrix each time, ugh. 
+        D = self.distance_matrix(X, metric='euclidean') # Compute the distance matrix. 
+        alpha = -np.log(0.5) / np.mean(D) # Use the alpha value from the paper. Should this be re-computed as well?
+
+        def similarity(dij:float):
+            return np.nan if (dij == 0) else np.exp(-dij * alpha)
+
+        S = np.vectorize(similarity)(D) # Compute the matrix of similarity scores. 
+        E = (S * np.log(S) + (1 - S) * np.log(1 - S)) # Pre-compute the entropy values to reduce cost. 
+        np.nan_to_num(E, copy=False)
+
+        return np.sum(E)
 
 
     def fit(self, embeddings:np.ndarray):
         '''Compute the order of features in order of importance using the SUD algorithm.'''
 
         embeddings = embeddings.astype(np.float16) if self.low_memory else embeddings
-        print(embeddings.dtype)
 
         n = len(embeddings) # The number of embeddings. 
         d = embeddings.shape[-1] # The original dimension of the embeddings. 
 
         # D = np.zeros((n, n)) # Initialize the distance matrix. 
-        self.D = self.distance_matrix(embeddings, metric=self.metric) # Compute the distance matrix. 
-        self.alpha = -np.log(0.5) / np.mean(self.D) # Use the alpha value from the paper. 
+        # NOTE: There seems to be some zeros in the distance matrix, even not along the diagonal. Why is this?
+        # Possibly something to do with rounding?
 
-        order = [] # Store the order in which features are removed. 
-        X = embeddings.copy()
-        for _ in tqdm(range(d), desc='SUD.fit: Computing entropy scores for each feature...'):
+        removed = [] # Store the order in which features are removed. 
+        # Make sure to normalize the embeddings using the range of values, as mentioned in the paper. 
+        X = embeddings.copy() / (np.max(embeddings, axis=0) - np.min(embeddings, axis=0))
+        pbar = tqdm(total=np.sum(np.arange(1, d + 1)), desc='SUD.fit: Computing entropy scores for each feature...')
+        for _ in range(d):
             min_E, min_i = np.inf, None
-            for i in range(embeddings.shape[-1]):
-                Xi = np.delete(X, i, axis=1)
-                E = self.entropy(Xi)
+            # Need to be able to keep track of the original feature index. 
+            for i in [i for i in range(d) if i not in removed]:
+                pbar.update(1) # Keep track of inner loop as well to get a better sense of how long it takes. 
+                idxs = np.array([j for j in range(d) if j not in removed + [i]]) # Remove the specified features.
+                E = self.entropy(X[:, idxs])
                 if E < min_E:
                     min_E = E
                     min_i = i
-            X = np.delete(X, min_i, axis=1) # REmove the feature for which E is minimized. 
-            order.append(min_i)
+                
+            removed.append(min_i)
     
         # Order list is currently in order or worst to best, which we want to reverse. 
         self.order = np.array(order[::-1])
@@ -124,8 +135,6 @@ class LaplacianScore(UnivariateFilter):
         
         :param metric: One of the metrics listed here https://scikit-learn.org/1.5/modules/generated/sklearn.metrics.pairwise.distance_metrics.html#sklearn.metrics.pairwise.distance_metrics
         ''' 
-
-
         self.D = None # For storing the distance matrix, which I think would be intensive to keep re-computing. 
         self.metric = metric # For cosine similarity, use 'cosine'.
         # self.dist_func = euclidean_distances if (metric == 'euclidean') else cosine_similarity
@@ -147,15 +156,16 @@ class LaplacianScore(UnivariateFilter):
         print('LaplacianScore.similarity_matrix: Computed k-nearest neighbor graph using the embeddings.')
         W = kneighbors_graph(X, n_neighbors=k, metric='euclidean', mode='distance').toarray() # Get the distance matrix. 
         print('LaplacianScore.similarity_matrix: Computed matrix Euclidean distance between points.')
-        G = W * A # Get the weighted graph with the Hadamard product. 
+        S = W * A # Get the weighted graph with the Hadamard product. 
 
         # Compute the weight matrix S of the graph. 
-        n = len(X) # The number of samples in the dataset. 
-        S = np.zeros((n, n))
-        for i in range(n):
-            for j in range(n):
-                S[i, j] = 0 if (G[i, j] == 0) else np.exp(-G[i, j] / self.t)
-        
+        # def similarity(dij:float):
+        #     return 0 if (dij ==  0) else np.exp(-dij / self.t)
+        # S = np.vectorize(similarity)(G)
+        S[S == 0] = np.nan
+        S = np.exp(-S / self.t)
+        np.nan_to_num(S, copy=False)
+
         print('LaplacianScore.fit: Computed matrix of similarity scores.')
 
         return S
@@ -166,18 +176,23 @@ class LaplacianScore(UnivariateFilter):
         n, d = embeddings.shape # n is the number of samples, d is the number of features. 
 
         S = self.similarity_matrix(embeddings, k=self.k)
-        D = np.diagonal(S @ np.ones(n).T)
+        D = np.diag(S @ np.ones(n).T)
         L = D - S
         ones = np.ones(n).T
 
         scores = []
         for r in tqdm(range(d), desc='LaplacianScore.fit: Computing Laplacian scores...'): # Iterate over the features. 
             fr = embeddings[:, r]
-            fr = fr - (fr.T @ D @ ones) / (ones.T @ D @ ones) @ ones # Adjust the vector, kind of like removing the mean. 
-            assert ones.T @ D @ ones == np.sum(D), 'LaplacianScore.fit: I think these should be the same.'
+            # print('fr:', fr.shape)
+            # print('D:', D.shape)
+            # print('ones:', ones.shape)
+            # print('(fr.T @ D @ ones):', (fr.T @ D @ ones).shape)
+            # print('(ones.T @ D @ ones):', (ones.T @ D @ ones))
+            fr = fr - ((fr.T @ D @ ones) / (ones.T @ D @ ones) * ones) # Adjust the vector, kind of like removing the mean. 
+            # assert ones.T @ D @ ones == np.sum(D), 'LaplacianScore.fit: I think these should be the same.'
             Lr = (fr.T @ L @ fr) / (fr.T @ D @ fr)
             scores.append(Lr)
-        scores = np.ndarray()
+        scores = np.array(scores)
         self.order = np.argsort(scores) # Increasing order, so order is from best to worst features. 
 
 
